@@ -1,12 +1,12 @@
 package dev.naijun.kakaotalk.emoticon
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import kotlin.experimental.xor
 
-// scon decrypt
-
-private fun preprocessKey(key: String): Triple<Int, Int, Int> {
+private suspend fun preprocessKey(key: String): Triple<Int, Int, Int> = withContext(Dispatchers.Default) {
     val keyBytes = key.toByteArray(StandardCharsets.UTF_8).let {
         it + it.copyOfRange(0, 32 - it.size)
     }
@@ -16,14 +16,14 @@ private fun preprocessKey(key: String): Triple<Int, Int, Int> {
             (acc shl 8) or (keyBytes[i + offset].toInt() and 0xFF)
         }.let { if (it == 0) initial else it }
 
-    return Triple(
+    Triple(
         computeKey(301989938, 0),
         computeKey(623357073, 4),
         computeKey(-2004086252, 8)
     )
 }
 
-private fun processXor(key: String, source: ByteArray): ByteArray {
+private suspend fun processXor(key: String, source: ByteArray): ByteArray = withContext(Dispatchers.Default) {
     var (key1, key2, key3) = preprocessKey(key)
 
     val result = ByteArray(source.size)
@@ -59,37 +59,34 @@ private fun processXor(key: String, source: ByteArray): ByteArray {
         result[i] = b xor b13.toByte()
     }
 
-    return result
+    result
 }
 
-fun emoticonDecrypt(source: ByteArray): ByteArray {
+suspend fun emoticonDecrypt(source: ByteArray): ByteArray = withContext(Dispatchers.IO) {
     val key = "a271730728cbe141e47fd9d677e9006d"
-
     val inputStream = source.inputStream()
     val outputStream = ByteArrayOutputStream()
 
     var buffer = ByteArray(128)
     var bufferIndex = 0
 
-    while (true) {
-        try {
-            val r11 = inputStream.read(buffer)
+    try {
+        while (true) {
+            val bytesRead = inputStream.read(buffer)
 
-            if (r11 <= 0) break
+            if (bytesRead <= 0) break
 
             if (bufferIndex < 128) {
                 buffer = processXor(key, buffer)
             }
 
-            outputStream.write(buffer, 0, r11)
-            bufferIndex += r11
-        } catch (e: Exception) {
-            e.printStackTrace()
+            outputStream.write(buffer, 0, bytesRead)
+            bufferIndex += bytesRead
         }
+    } finally {
+        inputStream.close()
+        outputStream.close()
     }
 
-    inputStream.close()
-    outputStream.close()
-
-    return outputStream.toByteArray()
+    outputStream.toByteArray()
 }
